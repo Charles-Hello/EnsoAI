@@ -90,6 +90,21 @@ function getWindowsRegistryEnvVars(): Record<string, string> {
   return envVars;
 }
 
+function lookupEnvVar(varName: string, registryEnvVars: Record<string, string>): string | null {
+  const upperVarName = varName.toUpperCase();
+  for (const [key, value] of Object.entries(registryEnvVars)) {
+    if (key.toUpperCase() === upperVarName) {
+      return value;
+    }
+  }
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.toUpperCase() === upperVarName && value) {
+      return value;
+    }
+  }
+  return null;
+}
+
 /**
  * Expand Windows environment variables in a string (e.g., %PATH% -> actual value)
  * Reads variable values from registry (GUI apps don't inherit shell environment)
@@ -99,15 +114,39 @@ function expandWindowsEnvVars(str: string): string {
 
   // Replace %VAR% patterns with their values from registry
   return str.replace(/%([^%]+)%/g, (match, varName) => {
-    const upperVarName = varName.toUpperCase();
-    for (const [key, value] of Object.entries(registryEnvVars)) {
-      if (key.toUpperCase() === upperVarName) {
-        return value;
-      }
-    }
-    // Keep original if not found
-    return match;
+    const resolved = lookupEnvVar(varName, registryEnvVars);
+    return resolved ?? match;
   });
+}
+
+function splitPathEntries(pathValue: string): string[] {
+  return pathValue
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function mergePathLists(primary: string, secondary?: string): string {
+  const merged = new Set<string>();
+  for (const entry of splitPathEntries(primary)) {
+    merged.add(entry);
+  }
+  for (const entry of splitPathEntries(secondary ?? '')) {
+    if (!merged.has(entry)) {
+      merged.add(entry);
+    }
+  }
+  return [...merged].join(delimiter);
+}
+
+function applyEnhancedPath(env: Record<string, string>): void {
+  const enhancedPath = getEnhancedPath();
+  const currentPath = env.PATH || env.Path || '';
+  const mergedPath = mergePathLists(enhancedPath, currentPath);
+  env.PATH = mergedPath;
+  if (isWindows) {
+    env.Path = mergedPath;
+  }
 }
 
 /**
@@ -317,23 +356,15 @@ export class PtyManager {
   >();
   private readonly ACTIVITY_CACHE_TTL_MS = 2000; // 缓存 2 秒
 
-  allocateId(): string {
-    return `pty-${++this.counter}`;
-  }
-
   create(
     options: TerminalCreateOptions,
     onData: (data: string) => void,
     onExit?: (exitCode: number, signal?: number) => void,
-    providedId?: string
+    ownerId: number | null = null
   ): string {
-    const id = providedId || this.allocateId();
-    if (this.sessions.has(id)) {
-      throw new Error(`PTY session already exists: ${id}`);
-    }
+    const id = `pty-${++this.counter}`;
     const home = process.env.HOME || process.env.USERPROFILE || homedir();
     const cwd = options.cwd || home;
-    const spawnCwd = options.spawnCwd || cwd;
 
     let shell: string;
     let args: string[];
@@ -373,23 +404,25 @@ export class PtyManager {
     }
 
     let ptyProcess: pty.IPty;
+    const baseEnv: Record<string, string> = {
+      ...process.env,
+      ...getProxyEnvVars(),
+      ...options.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
+    } as Record<string, string>;
+    applyEnhancedPath(baseEnv);
 
     try {
       ptyProcess = pty.spawn(shell, args, {
         name: 'xterm-256color',
         cols: options.cols || 80,
         rows: options.rows || 24,
-        cwd: spawnCwd,
-        env: {
-          ...process.env,
-          ...getProxyEnvVars(),
-          ...options.env,
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-          // Ensure proper locale for UTF-8 support (GUI apps may not inherit LANG)
-          LANG: process.env.LANG || 'en_US.UTF-8',
-          LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
-        } as Record<string, string>,
+        cwd,
+        env: baseEnv,
       });
     } catch (error) {
       if (!isWindows) {
@@ -401,7 +434,7 @@ export class PtyManager {
             name: 'xterm-256color',
             cols: options.cols || 80,
             rows: options.rows || 24,
-            cwd: spawnCwd,
+            cwd,
             env: {
               ...process.env,
               ...getProxyEnvVars(),
@@ -428,14 +461,7 @@ export class PtyManager {
     });
 
     // Store session first so onExit callback can access it
-    const session: PtySession = {
-      pty: ptyProcess,
-      cwd,
-      ownerId: null,
-      onData,
-      onExit,
-      dataDisposable,
-    };
+    const session: PtySession = { pty: ptyProcess, cwd, ownerId, onData, onExit, dataDisposable };
     this.sessions.set(id, session);
 
     const exitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {

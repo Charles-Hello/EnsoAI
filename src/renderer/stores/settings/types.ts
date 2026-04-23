@@ -1,17 +1,21 @@
 import type { Locale } from '@shared/i18n';
 import type {
-  AIProvider,
   BuiltinAgentId,
-  ConnectionProfile,
   CustomAgent,
   GitHostMapping,
   McpServer,
   PromptPreset,
   ProxySettings,
-  ReasoningEffort,
   ShellConfig,
 } from '@shared/types';
 import type { ClaudeEffort, CommonAISettings } from '@shared/types/ai';
+
+// AI Performance Optimization Settings
+export interface AIPerformanceSettings {
+  bareEnabled: boolean;
+  effortEnabled: boolean;
+  effortLevel: ClaudeEffort;
+}
 
 // Theme types
 export type Theme = 'light' | 'dark' | 'system' | 'sync-terminal';
@@ -270,10 +274,6 @@ export interface QuickTerminalSettings {
   isOpen: boolean;
 }
 
-export interface RemoteSettings {
-  profiles: ConnectionProfile[];
-}
-
 // Background image settings
 export type BackgroundSourceType = 'file' | 'folder' | 'url';
 export type BackgroundSizeMode = 'cover' | 'contain' | 'repeat' | 'center';
@@ -340,10 +340,12 @@ export interface SettingsState {
   branchNameGenerator: BranchNameGeneratorSettings;
   todoPolish: TodoPolishSettings;
 
+  // AI Performance Optimization
+  aiPerformance: AIPerformanceSettings;
+
   // App Settings
   autoUpdateEnabled: boolean;
   hapiSettings: HapiSettings;
-  remoteSettings: RemoteSettings;
   defaultWorktreePath: string; // Default path for creating worktrees
   proxySettings: ProxySettings;
   autoCreateSessionOnActivate: boolean; // Auto-create agent/terminal session when worktree becomes active
@@ -471,12 +473,12 @@ export interface SettingsState {
   setBranchNameGenerator: (settings: Partial<BranchNameGeneratorSettings>) => void;
   setTodoPolish: (settings: Partial<TodoPolishSettings>) => void;
 
+  // Setters - AI Performance
+  setAiPerformance: (settings: Partial<AIPerformanceSettings>) => void;
+
   // Setters - App
   setAutoUpdateEnabled: (enabled: boolean) => void;
   setHapiSettings: (settings: Partial<HapiSettings>) => void;
-  setRemoteProfiles: (profiles: ConnectionProfile[]) => void;
-  upsertRemoteProfile: (profile: ConnectionProfile) => void;
-  removeRemoteProfile: (profileId: string) => void;
   setDefaultWorktreePath: (path: string) => void;
   setProxySettings: (settings: Partial<ProxySettings>) => void;
   setAutoCreateSessionOnActivate: (enabled: boolean) => void;

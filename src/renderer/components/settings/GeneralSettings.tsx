@@ -30,7 +30,6 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
-  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -447,8 +446,7 @@ export function GeneralSettings() {
     });
   }, [customArgsText, shellConfig, setShellConfig]);
 
-  const executionPlatform = window.electronAPI?.env.platform;
-  const isWindows = executionPlatform === 'win32';
+  const isWindows = window.electronAPI?.env.platform === 'win32';
   const shellPathPlaceholder = isWindows ? 'cmd.exe' : '/bin/bash';
   const shellArgsPlaceholder = isWindows
     ? '/k "C:\\Program Files\\init.bat"'
