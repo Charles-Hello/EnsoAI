@@ -1,4 +1,3 @@
-import { buildRepositoryId, normalizeWorkspaceKey } from '@shared/utils/workspace';
 import { normalizeHexColor } from '@/lib/colors';
 import {
   ALL_GROUP_ID,
@@ -12,7 +11,6 @@ import {
 export const STORAGE_KEYS = {
   REPOSITORIES: 'enso-repositories',
   SELECTED_REPO: 'enso-selected-repo',
-  REMOTE_PROFILES: 'enso-remote-profiles',
   ACTIVE_WORKTREE: 'enso-active-worktree', // deprecated, kept for migration
   ACTIVE_WORKTREES: 'enso-active-worktrees', // per-repo worktree map
   WORKTREE_TABS: 'enso-worktree-tabs',
@@ -166,40 +164,32 @@ export const cleanPath = (path: string): string => {
   return path.replace(/[\\/]+$/, '');
 };
 
-export const normalizeWorkspacePathKey = (
-  path: string,
-  platform?: 'linux' | 'darwin' | 'win32'
-): string => {
-  const detectedPlatform =
-    platform ??
-    ((getPlatform() === 'win32' || getPlatform() === 'darwin' ? getPlatform() : 'linux') as
-      | 'linux'
-      | 'darwin'
-      | 'win32');
-  return normalizeWorkspaceKey(path, detectedPlatform);
-};
-
-export const ensureRepositoryId = <
-  T extends { id?: string; path: string; kind?: 'local' | 'remote'; connectionId?: string },
->(
-  repo: T
-): T & { id: string } => {
-  return {
-    ...repo,
-    id:
-      repo.id ||
-      buildRepositoryId(repo.kind ?? 'local', repo.path, {
-        connectionId: repo.connectionId,
-        platform:
-          getPlatform() === 'win32' ? 'win32' : getPlatform() === 'darwin' ? 'darwin' : 'linux',
-      }),
-  };
-};
-
 // Check if two paths are equal (considering OS-specific rules)
 export const pathsEqual = (path1: string, path2: string): boolean => {
   return normalizePath(path1) === normalizePath(path2);
 };
+
+// Generic localStorage JSON helpers
+export function loadJSON<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveJSON<T>(key: string, value: T | null): void {
+  try {
+    if (value != null) {
+      localStorage.setItem(key, JSON.stringify(value));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 // Repository settings types and helpers
 export interface RepositorySettings {
@@ -228,13 +218,13 @@ export const getStoredRepositorySettings = (): Record<string, RepositorySettings
 
 export const getRepositorySettings = (repoPath: string): RepositorySettings => {
   const allSettings = getStoredRepositorySettings();
-  const normalizedPath = normalizeWorkspacePathKey(repoPath);
+  const normalizedPath = normalizePath(repoPath);
   return allSettings[normalizedPath] || DEFAULT_REPOSITORY_SETTINGS;
 };
 
 export const saveRepositorySettings = (repoPath: string, settings: RepositorySettings): void => {
   const allSettings = getStoredRepositorySettings();
-  const normalizedPath = normalizeWorkspacePathKey(repoPath);
+  const normalizedPath = normalizePath(repoPath);
   allSettings[normalizedPath] = settings;
   localStorage.setItem(STORAGE_KEYS.REPOSITORY_SETTINGS, JSON.stringify(allSettings));
 };

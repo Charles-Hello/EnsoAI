@@ -1,4 +1,3 @@
-import { getDisplayPath } from '@shared/utils/path';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChevronRight,
@@ -360,7 +359,9 @@ export function FileTree({
 
   const handleFinishRename = useCallback(
     (path: string) => {
-      if (editValue.trim() && editValue !== path.split('/').pop()) {
+      const sepIdx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+      const currentName = sepIdx >= 0 ? path.substring(sepIdx + 1) : path;
+      if (editValue.trim() && editValue !== currentName) {
         onRename(path, editValue.trim());
       }
       setEditingPath(null);
@@ -370,7 +371,7 @@ export function FileTree({
   );
 
   const handleCopyPath = useCallback((path: string) => {
-    navigator.clipboard.writeText(getDisplayPath(path));
+    navigator.clipboard.writeText(path);
   }, []);
 
   const handleCopyRelativePath = useCallback(
@@ -1720,7 +1721,7 @@ function FileTreeNodeComponent({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate" title={getDisplayPath(actualNode.path)}>
+          <span className="min-w-0 flex-1 truncate" title={actualNode.path}>
             {displayName}
           </span>
         )}

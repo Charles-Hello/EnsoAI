@@ -1,4 +1,5 @@
 export * from './agent';
+export * from './agentTask';
 export * from './ai';
 export * from './app';
 export * from './claude';
@@ -9,10 +10,7 @@ export * from './ipc';
 export * from './mcp';
 export * from './plugins';
 export * from './prompts';
-export * from './remote';
-export * from './repositoryContext';
 export * from './search';
-export * from './session';
 export * from './shell';
 export * from './tempWorkspace';
 export * from './terminal';

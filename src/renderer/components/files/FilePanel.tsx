@@ -413,6 +413,13 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
     [tabs, promptUnsaved, saveFile, closeFile, t]
   );
 
+  const closeSavedTabs = useCallback(async () => {
+    const paths = tabs.filter((tab) => !tab.isDirty).map((tab) => tab.path);
+    for (const path of paths) {
+      await closeFile(path);
+    }
+  }, [tabs, closeFile]);
+
   // Handle file click (single click = open in editor)
   const handleFileClick = useCallback(
     (path: string) => {
@@ -673,8 +680,12 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
   // Handle rename
   const handleRename = useCallback(
     async (path: string, newName: string) => {
-      const parentPath = path.substring(0, path.lastIndexOf('/'));
-      const newPath = `${parentPath}/${newName}`;
+      const sepIdx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+      if (sepIdx < 0) return;
+      const sep = path[sepIdx];
+      const parentPath = path.substring(0, sepIdx);
+      const newPath = `${parentPath}${sep}${newName}`;
+      if (newPath === path) return;
       await renameItem(path, newPath);
     },
     [renameItem]
@@ -795,6 +806,7 @@ export function FilePanel({ rootPath, isActive = false }: FilePanelProps) {
             const paths = tabs.map((t) => t.path);
             await requestCloseTabs(paths);
           }}
+          onCloseSaved={closeSavedTabs}
           onCloseLeft={async (path) => {
             const index = tabs.findIndex((t) => t.path === path);
             if (index <= 0) return;

@@ -11,6 +11,7 @@ import {
 import { updateRendererLogging } from '@/utils/logging';
 import {
   defaultAgentSettings,
+  defaultAiPerformanceSettings,
   defaultBranchNameGeneratorSettings,
   defaultClaudeCodeIntegrationSettings,
   defaultCodeReviewSettings,
@@ -23,7 +24,6 @@ import {
   defaultMainTabKeybindings,
   defaultProxySettings,
   defaultQuickTerminalSettings,
-  defaultRemoteSettings,
   defaultSearchKeybindings,
   defaultSourceControlKeybindings,
   defaultTodoPolishSettings,
@@ -148,10 +148,12 @@ function getInitialState() {
     branchNameGenerator: defaultBranchNameGeneratorSettings,
     todoPolish: defaultTodoPolishSettings,
 
+    // AI Performance Optimization
+    aiPerformance: defaultAiPerformanceSettings,
+
     // App Settings
     autoUpdateEnabled: true,
     hapiSettings: defaultHapiSettings,
-    remoteSettings: defaultRemoteSettings,
     defaultWorktreePath: '',
     proxySettings: defaultProxySettings,
     autoCreateSessionOnActivate: false,
@@ -470,6 +472,12 @@ export const useSettingsStore = create<SettingsState>()(
           todoPolish: { ...state.todoPolish, ...settings },
         })),
 
+      // AI Performance Setter
+      setAiPerformance: (settings) =>
+        set((state) => ({
+          aiPerformance: { ...state.aiPerformance, ...settings },
+        })),
+
       // App Setters
       setAutoUpdateEnabled: (autoUpdateEnabled) => {
         set({ autoUpdateEnabled });
@@ -479,33 +487,6 @@ export const useSettingsStore = create<SettingsState>()(
       setHapiSettings: (settings) =>
         set((state) => ({
           hapiSettings: { ...state.hapiSettings, ...settings },
-        })),
-
-      setRemoteProfiles: (profiles) =>
-        set((state) => ({
-          remoteSettings: { ...state.remoteSettings, profiles },
-        })),
-
-      upsertRemoteProfile: (profile) =>
-        set((state) => {
-          const index = state.remoteSettings.profiles.findIndex((item) => item.id === profile.id);
-          const profiles =
-            index >= 0
-              ? state.remoteSettings.profiles.map((item) =>
-                  item.id === profile.id ? profile : item
-                )
-              : [...state.remoteSettings.profiles, profile];
-          return {
-            remoteSettings: { ...state.remoteSettings, profiles },
-          };
-        }),
-
-      removeRemoteProfile: (profileId) =>
-        set((state) => ({
-          remoteSettings: {
-            ...state.remoteSettings,
-            profiles: state.remoteSettings.profiles.filter((profile) => profile.id !== profileId),
-          },
         })),
 
       setDefaultWorktreePath: (defaultWorktreePath) => set({ defaultWorktreePath }),
@@ -818,8 +799,10 @@ export const useSettingsStore = create<SettingsState>()(
 
           // Auto-detect best shell on Windows for new users
           const shellAutoDetectKey = 'enso-shell-auto-detected';
-          const executionPlatform = window.electronAPI?.env?.platform;
-          if (executionPlatform === 'win32' && !localStorage.getItem(shellAutoDetectKey)) {
+          if (
+            window.electronAPI?.env?.platform === 'win32' &&
+            !localStorage.getItem(shellAutoDetectKey)
+          ) {
             localStorage.setItem(shellAutoDetectKey, 'true');
             window.electronAPI.shell
               .detect()

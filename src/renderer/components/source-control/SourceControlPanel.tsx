@@ -1,8 +1,12 @@
-import { getDisplayPathBasename, joinPath } from '@shared/utils/path';
+import { getPathBasename, joinPath, normalizePath } from '@shared/utils/path';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, GitBranch, GripVertical, History, PanelLeft } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getStoredBoolean, STORAGE_KEYS } from '@/App/storage';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  getStoredBoolean,
+  normalizePath as normalizePathForCompare,
+  STORAGE_KEYS,
+} from '@/App/storage';
 import { GitSyncButton } from '@/components/git/GitSyncButton';
 import {
   AlertDialog,
@@ -31,6 +35,7 @@ import {
 } from '@/hooks/useGit';
 import { useCommitDiff, useCommitFiles, useGitHistoryInfinite } from '@/hooks/useGitHistory';
 import { useGitSync } from '@/hooks/useGitSync';
+import { useSharedFileWatch } from '@/hooks/useSharedFileWatch';
 import {
   useFileChanges,
   useGitCommit,
@@ -67,8 +72,6 @@ interface SourceControlPanelProps {
   isActive?: boolean;
   onExpandWorktree?: () => void;
   worktreeCollapsed?: boolean;
-  emptyTitle?: string;
-  emptyDescription?: string;
 }
 
 export function SourceControlPanel({
@@ -76,8 +79,6 @@ export function SourceControlPanel({
   isActive = false,
   onExpandWorktree,
   worktreeCollapsed,
-  emptyTitle,
-  emptyDescription,
 }: SourceControlPanelProps) {
   const { t, tNode } = useI18n();
   const queryClient = useQueryClient();
@@ -129,7 +130,7 @@ export function SourceControlPanel({
   const skippedDirs = fileChangesResult?.skippedDirs;
 
   // Git sync operations using shared hook
-  const { refetchStatus, ahead, behind, tracking, currentBranch } = useGitSync({
+  const { refetchStatus, isSyncing, ahead, behind, tracking, currentBranch } = useGitSync({
     workdir: rootPath ?? '',
     enabled: isActive && !!rootPath,
   });
@@ -164,7 +165,7 @@ export function SourceControlPanel({
     if (!rootPath) return null;
     return {
       type: 'main',
-      name: getDisplayPathBasename(rootPath),
+      name: getPathBasename(rootPath),
       path: rootPath,
       branch: currentBranch ?? null,
       tracking: tracking ?? null,
@@ -243,7 +244,8 @@ export function SourceControlPanel({
     rootPath ?? null,
     selectedSubmoduleFile?.submodulePath ?? null,
     selectedSubmoduleFile?.path ?? null,
-    selectedSubmoduleFile?.staged ?? false
+    selectedSubmoduleFile?.staged ?? false,
+    { enabled: isActive, isActive }
   );
 
   const {
@@ -264,6 +266,10 @@ export function SourceControlPanel({
     }
   }, [repositories.length, selectedRepo]);
 
+  // Get the working directory for the selected repo
+  const selectedRepoPath =
+    selectedSubmodulePath && rootPath ? joinPath(rootPath, selectedSubmodulePath) : rootPath;
+
   // Refetch immediately when tab becomes active
   useEffect(() => {
     if (isActive && rootPath) {
@@ -273,8 +279,13 @@ export function SourceControlPanel({
       // Also refresh submodules data
       queryClient.invalidateQueries({ queryKey: ['git', 'submodules', rootPath] });
       queryClient.invalidateQueries({ queryKey: ['git', 'submodule', 'changes', rootPath] });
+      // Worktree / submodule file diffs are separate queries; refresh so diff viewer matches disk
+      queryClient.invalidateQueries({
+        queryKey: ['git', 'file-diff', selectedRepoPath ?? rootPath],
+      });
+      queryClient.invalidateQueries({ queryKey: ['git', 'submodule', 'diff', rootPath] });
     }
-  }, [isActive, rootPath, refetch, refetchCommits, refetchStatus, queryClient]);
+  }, [isActive, rootPath, selectedRepoPath, refetch, refetchCommits, refetchStatus, queryClient]);
 
   // Wrap sync handlers to add additional refetch calls for SourceControlPanel
   const handleSync = useCallback(
@@ -421,6 +432,7 @@ export function SourceControlPanel({
     },
     [rootPath, repositories, pushMutation, queryClient, refetchStatus, refetch, refetchCommits, t]
   );
+
   // Branch checkout handler - handles both main repo and submodule branches
   const handleBranchCheckout = useCallback(
     async (repoPath: string, branch: string) => {
@@ -606,9 +618,130 @@ export function SourceControlPanel({
   // Panel resize hooks
   const { width: panelWidth, isResizing, containerRef, handleMouseDown } = usePanelResize();
 
-  // Get the working directory for the selected repo
-  const selectedRepoPath =
-    selectedSubmodulePath && rootPath ? joinPath(rootPath, selectedSubmodulePath) : rootPath;
+  const normalizeFsPathForCompare = useCallback((p: string) => {
+    // 1) Normalize slashes using shared util
+    // 2) Apply renderer-level comparison normalization (trim + case normalization by platform)
+    return normalizePathForCompare(normalizePath(p));
+  }, []);
+
+  const expectedBulkNormalized = useMemo(() => {
+    if (!rootPath) return null;
+    return normalizeFsPathForCompare(joinPath(rootPath, '.enso-bulk'));
+  }, [rootPath, normalizeFsPathForCompare]);
+
+  const rootPathRef = useRef(rootPath);
+  useEffect(() => {
+    rootPathRef.current = rootPath;
+  }, [rootPath]);
+
+  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleGitListInvalidate = useCallback(() => {
+    const currentRoot = rootPathRef.current;
+    if (!currentRoot) return;
+    if (invalidateTimerRef.current) return;
+    invalidateTimerRef.current = setTimeout(() => {
+      invalidateTimerRef.current = null;
+      const latestRoot = rootPathRef.current;
+      if (!latestRoot) return;
+      queryClient.invalidateQueries({ queryKey: ['git', 'file-changes', latestRoot] });
+      queryClient.invalidateQueries({ queryKey: ['git', 'status', latestRoot] });
+      queryClient.invalidateQueries({ queryKey: ['git', 'submodule', 'changes', latestRoot] });
+    }, 200);
+  }, [queryClient]);
+
+  // If rootPath changes mid-flight, cancel any pending invalidation targeting the old root.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally cancel on rootPath change only
+  useEffect(() => {
+    if (invalidateTimerRef.current) {
+      clearTimeout(invalidateTimerRef.current);
+      invalidateTimerRef.current = null;
+    }
+  }, [rootPath]);
+
+  // Always keep git state (including diff) in sync with disk changes.
+  // This covers modifications made from anywhere (editor, terminal, external tools).
+  useSharedFileWatch(
+    rootPath ?? null,
+    (event) => {
+      if (!rootPath) return;
+
+      const eventPathNormalized = normalizeFsPathForCompare(event.path);
+      const eventBasename = getPathBasename(normalizePath(event.path));
+
+      // Bulk marker (too many events) — just refresh all git data.
+      if (
+        eventBasename === '.enso-bulk' &&
+        expectedBulkNormalized &&
+        eventPathNormalized === expectedBulkNormalized
+      ) {
+        if (invalidateTimerRef.current) {
+          clearTimeout(invalidateTimerRef.current);
+          invalidateTimerRef.current = null;
+        }
+        queryClient.invalidateQueries({ queryKey: ['git', 'file-changes', rootPath] });
+        queryClient.invalidateQueries({ queryKey: ['git', 'status', rootPath] });
+        queryClient.invalidateQueries({
+          queryKey: ['git', 'file-diff', selectedRepoPath ?? rootPath],
+        });
+        queryClient.invalidateQueries({ queryKey: ['git', 'submodule', 'diff', rootPath] });
+        queryClient.invalidateQueries({ queryKey: ['git', 'submodule', 'changes', rootPath] });
+        return;
+      }
+
+      // Keep list/status fresh, but coalesce frequent file events to avoid UI/IPC thrash.
+      scheduleGitListInvalidate();
+
+      // Refresh currently selected diff (main repo).
+      if (selectedFile && selectedRepoPath) {
+        const expectedAbs = joinPath(selectedRepoPath, selectedFile.path);
+        const expectedNormalized = normalizeFsPathForCompare(expectedAbs);
+        if (eventPathNormalized === expectedNormalized) {
+          queryClient.invalidateQueries({
+            queryKey: [
+              'git',
+              'file-diff',
+              selectedRepoPath,
+              selectedFile.path,
+              selectedFile.staged,
+            ],
+          });
+        }
+      }
+
+      // Refresh currently selected diff (submodule file view).
+      if (selectedSubmoduleFile) {
+        const expectedAbs = joinPath(
+          rootPath,
+          selectedSubmoduleFile.submodulePath,
+          selectedSubmoduleFile.path
+        );
+        const expectedNormalized = normalizeFsPathForCompare(expectedAbs);
+        if (eventPathNormalized === expectedNormalized) {
+          queryClient.invalidateQueries({
+            queryKey: [
+              'git',
+              'submodule',
+              'diff',
+              rootPath,
+              selectedSubmoduleFile.submodulePath,
+              selectedSubmoduleFile.path,
+              selectedSubmoduleFile.staged,
+            ],
+          });
+        }
+      }
+    },
+    { enabled: !!rootPath }
+  );
+
+  useEffect(() => {
+    return () => {
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Git mutations
   const stageMutation = useGitStage();
@@ -704,7 +837,7 @@ export function SourceControlPanel({
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ['git', 'file-changes', rootPath] }),
             queryClient.invalidateQueries({ queryKey: ['git', 'status', rootPath] }),
-            queryClient.invalidateQueries({ queryKey: ['git', 'file-diff', rootPath] }),
+            queryClient.invalidateQueries({ queryKey: ['git', 'file-diff', selectedRepoPath] }),
           ]);
         }
       }
@@ -853,10 +986,8 @@ export function SourceControlPanel({
           <GitBranch className="h-4.5 w-4.5" />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>{emptyTitle ?? t('Version Control')}</EmptyTitle>
-          <EmptyDescription>
-            {emptyDescription ?? t('Select a Worktree to view changes')}
-          </EmptyDescription>
+          <EmptyTitle>{t('Version Control')}</EmptyTitle>
+          <EmptyDescription>{t('Select a Worktree to view changes')}</EmptyDescription>
         </EmptyHeader>
         {onExpandWorktree && worktreeCollapsed && (
           <Button onClick={onExpandWorktree} variant="outline" className="mt-2">
@@ -964,11 +1095,7 @@ export function SourceControlPanel({
                 behind={selectedRepo?.behind ?? 0}
                 tracking={selectedRepo?.tracking ?? null}
                 currentBranch={selectedRepo?.branch ?? null}
-                isSyncing={
-                  syncingPath === selectedRepoPath ||
-                  pullMutation.isPending ||
-                  pushMutation.isPending
-                }
+                isSyncing={isSyncing || pullMutation.isPending || pushMutation.isPending}
                 onSync={() => selectedRepoPath && handleSync(selectedRepoPath)}
                 onPublish={() => selectedRepoPath && handlePublish(selectedRepoPath)}
               />
@@ -1012,11 +1139,22 @@ export function SourceControlPanel({
                     if (selectedSubmodulePath) {
                       refetchSubmoduleChanges();
                       refetchSubmoduleCommits();
+                      if (rootPath) {
+                        queryClient.invalidateQueries({
+                          queryKey: ['git', 'submodule', 'diff', rootPath],
+                        });
+                      }
                     } else if (rootPath) {
                       await fetchMutation.mutateAsync({ workdir: rootPath });
                       refetch();
                       refetchCommits();
                       refetchStatus();
+                      queryClient.invalidateQueries({
+                        queryKey: ['git', 'file-diff', selectedRepoPath ?? rootPath],
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: ['git', 'submodule', 'diff', rootPath],
+                      });
                     }
                   }}
                   isRefreshing={
@@ -1094,6 +1232,14 @@ export function SourceControlPanel({
                     refetch();
                     refetchCommits();
                     refetchStatus();
+                    if (rootPath) {
+                      queryClient.invalidateQueries({
+                        queryKey: ['git', 'file-diff', selectedRepoPath ?? rootPath],
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: ['git', 'submodule', 'diff', rootPath],
+                      });
+                    }
                   }}
                 />
               </div>
@@ -1122,6 +1268,7 @@ export function SourceControlPanel({
                 rootPath={selectedRepoPath ?? rootPath ?? ''}
                 fileDiff={commitDiff}
                 filePath={selectedCommitFile}
+                commitHash={selectedCommitHash}
                 isActive={isActive}
                 isLoading={commitDiffLoading}
                 onPrevFile={handlePrevCommitFile}

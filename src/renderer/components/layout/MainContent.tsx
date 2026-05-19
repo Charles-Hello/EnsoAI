@@ -4,6 +4,7 @@ import {
   FolderOpen,
   GitBranch,
   KanbanSquare,
+  ListTodo,
   MessageSquare,
   PanelLeft,
   RectangleEllipsis,
@@ -35,6 +36,7 @@ import { useI18n } from '@/i18n';
 import { springFast } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { useAgentSessionsStore } from '@/stores/agentSessions';
+import { useAgentTasksStore } from '@/stores/agentTasks';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalWriteStore } from '@/stores/terminalWrite';
 import { TerminalPanel } from '../terminal';
@@ -48,9 +50,6 @@ interface MainContentProps {
   onTabReorder?: (fromIndex: number, toIndex: number) => void;
   repoPath?: string; // repository path for session storage
   worktreePath?: string;
-  sourceControlRootPath?: string;
-  reviewRootPath?: string;
-  openInPath?: string;
   repositoryCollapsed?: boolean;
   worktreeCollapsed?: boolean;
   fileSidebarCollapsed?: boolean;
@@ -65,9 +64,8 @@ interface MainContentProps {
   onCategoryChange?: (category: SettingsCategory) => void;
   scrollToProvider?: boolean;
   onToggleSettings?: () => void;
-  showOpenInMenu?: boolean;
-  sourceControlEmptyTitle?: string;
-  sourceControlEmptyDescription?: string;
+  onOpenAgentTasks?: () => void;
+  isAgentTasksPanelOpen?: boolean;
 }
 
 export function MainContent({
@@ -77,9 +75,6 @@ export function MainContent({
   onTabReorder,
   repoPath,
   worktreePath,
-  sourceControlRootPath,
-  reviewRootPath,
-  openInPath,
   repositoryCollapsed = false,
   worktreeCollapsed = false,
   fileSidebarCollapsed = false,
@@ -94,9 +89,8 @@ export function MainContent({
   onCategoryChange,
   scrollToProvider,
   onToggleSettings,
-  showOpenInMenu = true,
-  sourceControlEmptyTitle,
-  sourceControlEmptyDescription,
+  onOpenAgentTasks,
+  isAgentTasksPanelOpen = false,
 }: MainContentProps) {
   const { t } = useI18n();
   const settingsDisplayMode = useSettingsStore((s) => s.settingsDisplayMode);
@@ -106,13 +100,14 @@ export function MainContent({
 
   // Diff Review Modal state
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const activeTaskCount = useAgentTasksStore((s) => s._activeTaskCountCache);
 
   // Subscribe to sessions and activeIds for reactivity
   const sessions = useAgentSessionsStore((s) => s.sessions);
   const activeIds = useAgentSessionsStore((s) => s.activeIds);
   const activeSessionId = useMemo(() => {
     if (!repoPath || !worktreePath) return null;
-    const key = normalizePath(worktreePath);
+    const key = `${normalizePath(repoPath)}::${normalizePath(worktreePath)}`;
     const activeId = activeIds[key];
     if (activeId) {
       const session = sessions.find((s) => s.id === activeId);
@@ -235,26 +230,25 @@ export function MainContent({
   const isMac = window.electronAPI.env.platform === 'darwin';
   const needsTrafficLightPadding = isMac && repositoryCollapsed && worktreeCollapsed;
 
-  // Remember the last valid repo/worktree pair to keep AgentPanel mounted
-  // without mixing a new repoPath with an old worktreePath.
-  const lastValidContextRef = useRef<{ repoPath: string; worktreePath: string } | null>(null);
+  // Remember last valid repoPath and worktreePath to keep AgentPanel mounted
+  // This prevents agent terminals from being destroyed when switching repos
+  const lastValidRepoPathRef = useRef<string | null>(null);
+  const lastValidWorktreePathRef = useRef<string | null>(null);
 
+  // Update refs when we have valid values
   useEffect(() => {
     if (repoPath && worktreePath) {
-      lastValidContextRef.current = { repoPath, worktreePath };
+      lastValidRepoPathRef.current = repoPath;
+      lastValidWorktreePathRef.current = worktreePath;
     }
   }, [repoPath, worktreePath]);
 
-  const effectiveRepoPath =
-    repoPath && worktreePath ? repoPath : (lastValidContextRef.current?.repoPath ?? null);
-  const effectiveWorktreePath =
-    repoPath && worktreePath ? worktreePath : (lastValidContextRef.current?.worktreePath ?? null);
+  // Use current values if available, otherwise use last valid values
+  const effectiveRepoPath = repoPath || lastValidRepoPathRef.current;
+  const effectiveWorktreePath = worktreePath || lastValidWorktreePathRef.current;
 
   // Check if we have a currently selected worktree
   const hasActiveWorktree = Boolean(repoPath && worktreePath);
-  const effectiveSourceControlRootPath = sourceControlRootPath ?? worktreePath;
-  const effectiveReviewRootPath = reviewRootPath ?? worktreePath;
-  const effectiveOpenInPath = openInPath ?? worktreePath;
 
   // When background image is enabled, avoid stacking multiple semi-transparent bg-background layers
   // Keep bg-background on <main> only (1 layer), remove from all inner elements to prevent double-stacking
@@ -417,7 +411,26 @@ export function MainContent({
           >
             <Settings className="h-4 w-4" />
           </button>
-          {activeSessionId && effectiveReviewRootPath && (
+          {/* Agent Tasks button */}
+          <button
+            type="button"
+            className={cn(
+              'relative flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+              isAgentTasksPanelOpen
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            )}
+            onClick={onOpenAgentTasks}
+            title={t('Agent Tasks')}
+          >
+            <ListTodo className="h-4 w-4" />
+            {activeTaskCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                {activeTaskCount}
+              </span>
+            )}
+          </button>
+          {activeSessionId && (
             <Button
               variant="outline"
               size="sm"
@@ -428,7 +441,7 @@ export function MainContent({
               {t('Review')}
             </Button>
           )}
-          {showOpenInMenu && <OpenInMenu path={effectiveOpenInPath} activeTab={activeTab} />}
+          <OpenInMenu path={worktreePath} activeTab={activeTab} />
         </div>
       </header>
 
@@ -535,12 +548,10 @@ export function MainContent({
           )}
         >
           <SourceControlPanel
-            rootPath={effectiveSourceControlRootPath}
+            rootPath={worktreePath}
             isActive={activeTab === 'source-control'}
             onExpandWorktree={onExpandWorktree}
             worktreeCollapsed={worktreeCollapsed}
-            emptyTitle={sourceControlEmptyTitle}
-            emptyDescription={sourceControlEmptyDescription}
           />
         </div>
         {/* Todo tab */}
@@ -598,7 +609,7 @@ export function MainContent({
       <DiffReviewModal
         open={isReviewModalOpen}
         onOpenChange={setIsReviewModalOpen}
-        rootPath={effectiveReviewRootPath}
+        rootPath={worktreePath}
         onSend={() => onTabChange('chat')}
       />
     </main>

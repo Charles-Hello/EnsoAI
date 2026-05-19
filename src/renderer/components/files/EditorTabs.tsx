@@ -1,4 +1,3 @@
-import { getDisplayPath } from '@shared/utils/path';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,6 +18,7 @@ interface EditorTabsProps {
   onClose?: (path: string) => void | Promise<void>;
   onCloseOthers?: (keepPath: string) => void | Promise<void>;
   onCloseAll?: () => void | Promise<void>;
+  onCloseSaved?: () => void | Promise<void>;
   onCloseLeft?: (path: string) => void | Promise<void>;
   onCloseRight?: (path: string) => void | Promise<void>;
   onTabReorder?: (fromIndex: number, toIndex: number) => void;
@@ -34,6 +34,7 @@ export function EditorTabs({
   onClose,
   onCloseOthers,
   onCloseAll,
+  onCloseSaved,
   onCloseLeft,
   onCloseRight,
   onTabReorder,
@@ -86,13 +87,14 @@ export function EditorTabs({
 
   const canCloseOthers = !!onCloseOthers && !!menuTabPath && tabs.length > 1;
   const canCloseAll = !!onCloseAll && tabs.length > 0;
+  const canCloseSaved = !!onCloseSaved && tabs.some((tab) => !tab.isDirty);
   const canCloseLeft = !!onCloseLeft && menuTabIndex > 0;
   const canCloseRight = !!onCloseRight && menuTabIndex >= 0 && menuTabIndex < tabs.length - 1;
 
   const handleCopyPath = useCallback(async () => {
     if (!menuTabPath) return;
     try {
-      await navigator.clipboard.writeText(getDisplayPath(menuTabPath));
+      await navigator.clipboard.writeText(menuTabPath);
       toastManager.add({
         title: t('Copied'),
         description: t('Path copied to clipboard'),
@@ -116,7 +118,7 @@ export function EditorTabs({
   }
 
   return (
-    <div className="h-10 shrink-0 overflow-hidden border-b">
+    <div className="h-10 shrink-0 overflow-hidden">
       <ScrollArea className="h-full">
         <div className="flex h-9 w-max pb-1">
           {tabs.map((tab, index) => {
@@ -239,6 +241,16 @@ export function EditorTabs({
             {t('Close Tabs to the Right')}
           </MenuItem>
           <MenuSeparator />
+          <MenuItem
+            disabled={!canCloseSaved}
+            onClick={async () => {
+              if (!onCloseSaved) return;
+              await onCloseSaved();
+              setMenuOpen(false);
+            }}
+          >
+            {t('Close Saved Tabs')}
+          </MenuItem>
           <MenuItem
             disabled={!canCloseAll}
             onClick={async () => {

@@ -1,10 +1,3 @@
-export type AppCloseRequestReason = 'quit-app' | 'replace-window';
-
-export interface AppCloseRequestPayload {
-  requestId: string;
-  reason: AppCloseRequestReason;
-}
-
 export const IPC_CHANNELS = {
   // Git
   GIT_STATUS: 'git:status',
@@ -113,24 +106,12 @@ export const IPC_CHANNELS = {
   TERMINAL_EXIT: 'terminal:exit',
   TERMINAL_GET_ACTIVITY: 'terminal:getActivity',
 
-  // Session
-  SESSION_CREATE: 'session:create',
-  SESSION_ATTACH: 'session:attach',
-  SESSION_DETACH: 'session:detach',
-  SESSION_KILL: 'session:kill',
-  SESSION_WRITE: 'session:write',
-  SESSION_RESIZE: 'session:resize',
-  SESSION_LIST: 'session:list',
-  SESSION_GET_ACTIVITY: 'session:getActivity',
-  SESSION_DATA: 'session:data',
-  SESSION_EXIT: 'session:exit',
-  SESSION_STATE: 'session:state',
-
   // Agent
   AGENT_LIST: 'agent:list',
   AGENT_STOP_NOTIFICATION: 'agent:stop:notification',
   AGENT_ASK_USER_QUESTION_NOTIFICATION: 'agent:askUserQuestion:notification',
   AGENT_PRE_TOOL_USE_NOTIFICATION: 'agent:preToolUse:notification',
+  AGENT_USER_PROMPT_NOTIFICATION: 'agent:userPrompt:notification',
   AGENT_STATUS_UPDATE: 'agent:status:update',
 
   // App
@@ -142,6 +123,7 @@ export const IPC_CHANNELS = {
   APP_CLOSE_SAVE_REQUEST: 'app:closeSaveRequest',
   APP_CLOSE_SAVE_RESPONSE: 'app:closeSaveResponse',
   APP_OPEN_PATH: 'app:openPath',
+  APP_FOCUS_SESSION: 'app:focusSession',
   APP_SET_LANGUAGE: 'app:setLanguage',
   APP_SET_PROXY: 'app:setProxy',
   APP_TEST_PROXY: 'app:testProxy',
@@ -157,32 +139,10 @@ export const IPC_CHANNELS = {
   WINDOW_SET_TRAFFIC_LIGHTS_VISIBLE: 'window:setTrafficLightsVisible',
   WINDOW_IS_FULLSCREEN: 'window:isFullScreen',
   WINDOW_FULLSCREEN_CHANGED: 'window:fullScreenChanged',
-  WINDOW_GET_REPOSITORY_RUNTIME_CONTEXT: 'window:getRepositoryRuntimeContext',
+
   // Dialog
   DIALOG_OPEN_DIRECTORY: 'dialog:openDirectory',
   DIALOG_OPEN_FILE: 'dialog:openFile',
-
-  // Remote connections
-  REMOTE_PROFILE_LIST: 'remote:profile:list',
-  REMOTE_PROFILE_SAVE: 'remote:profile:save',
-  REMOTE_PROFILE_DELETE: 'remote:profile:delete',
-  REMOTE_TEST_CONNECTION: 'remote:testConnection',
-  REMOTE_CONNECT: 'remote:connect',
-  REMOTE_DISCONNECT: 'remote:disconnect',
-  REMOTE_GET_STATUS: 'remote:getStatus',
-  SESSION_STORAGE_GET: 'sessionStorage:get',
-  SESSION_STORAGE_SYNC_LOCAL_STORAGE: 'sessionStorage:syncLocalStorage',
-  SESSION_STORAGE_IMPORT_LOCAL_STORAGE: 'sessionStorage:importLocalStorage',
-  SESSION_STORAGE_IS_LEGACY_LOCAL_STORAGE_MIGRATED: 'sessionStorage:isLegacyLocalStorageMigrated',
-  REMOTE_DIRECTORY_LIST: 'remote:directory:list',
-  REMOTE_HELPER_STATUS: 'remote:helper:status',
-  REMOTE_HELPER_INSTALL: 'remote:helper:install',
-  REMOTE_HELPER_UPDATE: 'remote:helper:update',
-  REMOTE_HELPER_DELETE: 'remote:helper:delete',
-  REMOTE_BROWSE_ROOTS: 'remote:browseRoots',
-  REMOTE_AUTH_PROMPT: 'remote:auth:prompt',
-  REMOTE_AUTH_RESPONSE: 'remote:auth:response',
-  REMOTE_STATUS_CHANGED: 'remote:statusChanged',
 
   // Context Menu
   CONTEXT_MENU_SHOW: 'contextMenu:show',
@@ -308,6 +268,15 @@ export const IPC_CHANNELS = {
   TODO_REORDER_TASKS: 'todo:reorderTasks',
   TODO_MIGRATE: 'todo:migrate',
   TODO_AI_POLISH: 'todo:aiPolish',
+
+  // Agent Task Panel
+  AGENT_TASK_PANEL_TOGGLE: 'agent-task:panel:toggle',
+  AGENT_TASK_PANEL_VISIBILITY_CHANGED: 'agent-task:panel:visibilityChanged',
+  AGENT_TASK_NAVIGATE_TO_SESSION: 'agent-task:navigateToSession',
+  AGENT_TASK_GET_SNAPSHOT: 'agent-task:getSnapshot',
+  AGENT_TASK_SNAPSHOT_RESPONSE: 'agent-task:snapshotResponse',
+  AGENT_TASK_PANEL_RESET_BOUNDS: 'agent-task:panel:resetBounds',
+  AGENT_TASK_SYNC: 'agent-task:sync',
 
   // Logging
   LOG_UPDATE_CONFIG: 'log:update-config',

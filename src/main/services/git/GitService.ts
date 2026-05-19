@@ -728,16 +728,19 @@ export class GitService {
   }
 
   async getCommitFiles(hash: string, submodulePath?: string): Promise<CommitFileChange[]> {
+    // Trim hash to remove any whitespace/newlines that may be passed from IPC layer
+    const trimmedHash = hash.trim();
     const git = this.getGitInstance(submodulePath);
+
     // Use cat-file to reliably detect merge commits (check parent count)
-    const commitInfo = await git.catFile(['-p', hash]);
+    const commitInfo = await git.catFile(['-p', trimmedHash]);
     const isMergeCommit = (commitInfo.match(/^parent /gm) ?? []).length >= 2;
 
     const files: CommitFileChange[] = [];
 
     if (isMergeCommit) {
       // Merge commit: use git diff to compare with first parent
-      const mergeDiff = await git.diff([`${hash}^1`, hash, '--name-status']);
+      const mergeDiff = await git.diff([`${trimmedHash}^1`, trimmedHash, '--name-status']);
       const diffLines = mergeDiff.split('\n').filter((line) => line.trim());
 
       for (const line of diffLines) {
@@ -755,9 +758,17 @@ export class GitService {
         }
       }
     } else {
-      // Regular commit: use show --name-status
-      const commitShow = await git.show([hash, '--name-status', '--pretty=format:%P']);
-      const lines = commitShow.split('\n').filter((line) => line.trim());
+      // Regular commit: use diff-tree to list changed files without patch output.
+      // `--root` ensures the initial commit reports its files too.
+      const diffTree = await git.raw([
+        'diff-tree',
+        '--root',
+        '--no-commit-id',
+        '--name-status',
+        '-r',
+        trimmedHash,
+      ]);
+      const lines = diffTree.split('\n').filter((line) => line.trim());
 
       for (const line of lines) {
         // Match: status (with optional percentage for R/C) and file path(s)
@@ -1451,8 +1462,14 @@ export class GitService {
     const cloneBaseDir = path.dirname(targetPath);
     const cloneTarget = toGitPath(cloneBaseDir, targetPath);
 
+    // Ensure parent directory exists
+    if (!existsSync(cloneBaseDir)) {
+      await fs.mkdir(cloneBaseDir, { recursive: true });
+    }
+
     // Create simple-git instance with progress callback
     const git = createSimpleGit(cloneBaseDir, {
+      timeout: { block: 300_000 }, // 5 minutes timeout for clone operations
       progress: ({ method, stage, progress }) => {
         if (method === 'clone' && onProgress) {
           onProgress({ stage, progress });
